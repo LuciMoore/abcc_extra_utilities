@@ -1,0 +1,74 @@
+#!/bin/bash
+
+subject_id=SUBJECTID
+subject_dir=SUBJECTDIR
+data_bucket=BUCKET
+ses_id=SESID
+bids_ses=BIDSSES
+rundir=RUNDIR
+dcm2bidsrepo=DCM2BIDSREPO
+
+output_dir=/tmp/dicom2bids/SUBJECTID/output
+work_dir=/tmp/dicom2bids/SUBJECTID/work
+download_dir=/tmp/dicom2bids/SUBJECTID/download
+
+## SET UP ENVIRONMENT
+# Compatibility mode
+source /etc/profile
+module load compatibility/mesabi-centos7
+compat-start
+
+source /home/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+module load singularity
+module load dcmtk/3.6.8
+
+export PATH="/home/faird/shared/code/external/envs/miniconda3/mini3/bin:$PATH"
+conda activate abcd-dicom2bids
+
+singularity=`which singularity`
+dcm2bids=`which dcm2bids`
+echo `which dcm2bids`
+
+fasttrack='/home/rando149/shared/code/internal/utilities/abcd-dicom2bids/spreadsheets/fastqc20240604/abcd_fastqc01.txt'
+
+## RUN abcd2bids.py
+python3 ${dcm2bidsrepo}/abcd2bids.py \
+/common/software/install/migrated/fsl/6.0.4/ /home/feczk001/shared/code/external/utilities/MATLAB_MCR/v91/ \
+-q ${fasttrack} \
+-l ${subject_dir}/${subject_id}.txt -o ${output_dir} -p 1231764 --download=${download_dir} --downloadcmd /home/faird/shared/code/external/envs/miniconda3/mini3/envs/abcd-dicom2bids/bin/downloadcmd --singularity /home/rando149/shared/code/internal/utilities/abcd-dicom2bids_nda/validator_latest.sif -y ${ses_id} --temp=${work_dir} -s download_nda_data
+
+#sync EventRelatedInformation
+if [ -d "${output_dir}/sourcedata/${subject_id}/" ] && [ ! -f withERI.txt ] ; then
+	touch withERI.txt
+	echo ${subject_id} >> withERI.txt
+	
+	s3cmd sync -f --recursive -v ${output_dir}/sourcedata/${subject_id} ${data_bucket}/sourcedata/ --delete-removed
+	
+elif [ -d "${output_dir}/sourcedata/${subject_id}/" ] && [ -f withERI.txt ] ; then
+	echo ${subject_id} >> withERI.txt
+	
+	s3cmd sync -f --recursive -v ${output_dir}/sourcedata/${subject_id} ${data_bucket}/sourcedata/ --delete-removed
+	
+elif [ ! "${output_dir}/sourcedata/${subject_id}/" ] && [ ! -f withoutERI.txt ]; then
+	touch withoutERI.txt
+	echo ${subject_id} >> withoutERI.txt
+else 
+	echo ${subject_id} >> withoutERI.txt	
+fi
+
+# Sync at subject dir if fmap folder is present
+if [ -d "${output_dir}/${subject_id}/${bids_ses}/fmap" ]; then
+	s3cmd sync -f --recursive -v ${output_dir}/${subject_id}/ ${data_bucket}/${subject_id}/
+
+	if [ $? -eq 0 ]; then
+		# If successful, append subject_id to successful.txt and delete from scratch
+		echo ${subject_id}/${bids_ses} >> ${rundir}/successful.txt
+	else
+		# Optionally, handle the failure case
+		echo ${subject_id}/${bids_ses} >> failed.txt
+		echo "Sync failed for ${subject_id}/${bids_ses}" >&2
+	fi
+else
+	echo ${subject_id}/${bids_ses} >> failed.txt
+	echo "No ${dtype} fmaps produced for ${subject_id}/${bids_ses}  - not syncing" >&2
+fi
