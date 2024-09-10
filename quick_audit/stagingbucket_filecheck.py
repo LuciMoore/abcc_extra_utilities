@@ -6,8 +6,6 @@ from datetime import datetime
 '''
 Checks whether specificed modality folders are present based on subject lists of subjects/sessions that are both expected to be in s3 bucket and also are present 
 '''
-aws_access_key='********'
-aws_secret_key='********'
 
 def list_s3_contents(aws_access_key, aws_secret_key, bucket_name, folder_prefix):
     # Create an S3 client
@@ -44,6 +42,9 @@ def list_s3_contents(aws_access_key, aws_secret_key, bucket_name, folder_prefix)
                 return 0
 
 if __name__ == "__main__":
+    ## HARDCODE WARNINGS
+    aws_access_key='********'
+    aws_secret_key='********'
     modality='func'
 
     current_date = datetime.now().strftime('%m%d')
